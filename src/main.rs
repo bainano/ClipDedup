@@ -149,6 +149,12 @@ fn read_text(clip: &mut Clipboard) -> Option<String> {
     None
 }
 
+/// 归一化用于去重比对：统一换行符（CRLF→LF）并去掉首尾空白。
+/// 避免“同一段文字”因复制来源不同（是否带末尾换行/空格、行尾符差异）而漏判为重复。
+fn normalize_text(s: &str) -> String {
+    s.replace("\r\n", "\n").trim().to_string()
+}
+
 fn spawn_clipboard_monitor(shared: Arc<Shared>, tx: mpsc::Sender<UiMsg>) {
     std::thread::spawn(move || {
         let mut clip = match Clipboard::new() {
@@ -186,8 +192,9 @@ fn spawn_clipboard_monitor(shared: Arc<Shared>, tx: mpsc::Sender<UiMsg>) {
             // 重新启用时把当前剪贴板内容记入历史（不再视为新内容）
             if shared.rebase.swap(false, Ordering::Relaxed) {
                 if let Some(t) = read_text(&mut clip) {
-                    if !history.contains(&t) {
-                        history.push_back(t);
+                    let key = normalize_text(&t);
+                    if !key.is_empty() && !history.contains(&key) {
+                        history.push_back(key);
                         if history.len() > HISTORY_CAP {
                             history.pop_front();
                         }
@@ -211,34 +218,40 @@ fn spawn_clipboard_monitor(shared: Arc<Shared>, tx: mpsc::Sender<UiMsg>) {
             seq = unsafe { GetClipboardSequenceNumber() };
 
             match text {
-                Some(t) if history.contains(&t) => {
-                    #[cfg(debug_assertions)]
-                    eprintln!("[clipdedup] duplicate in history, clearing...");
-                    // 与历史中任意一条重复：清空剪贴板，使本次复制不生效
-                    match clip.clear() {
-                        Ok(()) => {
-                            seq = unsafe { GetClipboardSequenceNumber() };
-                            let n = shared.intercept_count.fetch_add(1, Ordering::Relaxed) + 1;
-                            if shared.notify.load(Ordering::Relaxed) {
-                                notify::show_duplicate_intercepted(&t);
-                            }
-                            tx.send(UiMsg::Intercepted(n)).ok();
-                        }
-                        Err(_e) => {
-                            #[cfg(debug_assertions)]
-                            eprintln!("[clipdedup] clear failed: {_e:?}");
-                        }
-                    }
-                }
-                // 新内容：记入历史并放行
                 Some(t) => {
-                    history.push_back(t);
-                    if history.len() > HISTORY_CAP {
-                        history.pop_front();
+                    let key = normalize_text(&t);
+                    if key.is_empty() {
+                        // 归一化后为空（如纯空白内容）：放行，不参与比对
+                        continue;
                     }
-                    tx.send(UiMsg::Accepted(history.len())).ok();
+                    if history.contains(&key) {
+                        #[cfg(debug_assertions)]
+                        eprintln!("[clipdedup] duplicate in history, clearing...");
+                        // 与历史中任意一条重复：清空剪贴板，使本次复制不生效
+                        match clip.clear() {
+                            Ok(()) => {
+                                seq = unsafe { GetClipboardSequenceNumber() };
+                                let n = shared.intercept_count.fetch_add(1, Ordering::Relaxed) + 1;
+                                if shared.notify.load(Ordering::Relaxed) {
+                                    notify::show_duplicate_intercepted(&t);
+                                }
+                                tx.send(UiMsg::Intercepted(n)).ok();
+                            }
+                            Err(_e) => {
+                                #[cfg(debug_assertions)]
+                                eprintln!("[clipdedup] clear failed: {_e:?}");
+                            }
+                        }
+                    } else {
+                        // 新内容：记入历史并放行
+                        history.push_back(key);
+                        if history.len() > HISTORY_CAP {
+                            history.pop_front();
+                        }
+                        tx.send(UiMsg::Accepted(history.len())).ok();
+                    }
                 }
-                // 非文本内容（图片/文件等）或空内容：放行，不做比对
+                // 非文本内容（图片/文件等）或读取失败：放行，不做比对
                 None => {}
             }
         }
