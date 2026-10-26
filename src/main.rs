@@ -3,10 +3,14 @@
 //! 后台线程轮询剪贴板序号感知复制动作，新内容与最近复制历史中任意一条重复时
 //! 立即清空剪贴板；主线程用 winit 事件循环驱动 tray-icon 托盘与菜单。
 
+// 始终使用 Windows 子系统：双击运行时不弹出控制台窗口
+#![windows_subsystem = "windows"]
+
 #[cfg(not(windows))]
 compile_error!("ClipDedup 目前仅支持 Windows。");
 
 mod autostart;
+mod notify;
 
 use std::collections::VecDeque;
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
@@ -22,10 +26,10 @@ use winit::event::WindowEvent;
 use winit::window::WindowId;
 use winit::event_loop::{ActiveEventLoop, ControlFlow, EventLoop};
 
-const LOGO_BYTES: &[u8] = include_bytes!("../assets/logo.png");
+const LOGO_BYTES: &[u8] = include_bytes!("../assets/icon.png");
 const POLL_INTERVAL: Duration = Duration::from_millis(120);
-/// 去重历史容量：与最近 N 条已放行内容比对
-const HISTORY_CAP: usize = 100;
+/// 去重历史容量：与最近 N 条已放行内容比对（超过后淘汰最旧一条）
+const HISTORY_CAP: usize = 10;
 const TOOLTIP_ENABLED: &str = "ClipDedup · 完全去重运行中";
 const TOOLTIP_PAUSED: &str = "ClipDedup · 已暂停去重";
 
@@ -45,8 +49,10 @@ struct Shared {
     enabled: AtomicBool,
     /// 请求监视线程把「当前剪贴板内容」记入历史（重新启用时使用）
     rebase: AtomicBool,
-    /// 请求监视线程清空去重历史
+/// 请求监视线程清空去重历史
     clear_history: AtomicBool,
+    /// 拦截重复复制时是否弹出系统通知
+    notify: AtomicBool,
     intercept_count: AtomicU64,
 }
 
@@ -55,10 +61,12 @@ struct App {
     ui_rx: mpsc::Receiver<UiMsg>,
     tray: TrayIcon,
     check_dedup: CheckMenuItem,
+    check_notify: CheckMenuItem,
     check_autostart: CheckMenuItem,
     id_dedup: MenuId,
-    id_autostart: MenuId,
+    id_notify: MenuId,
     id_clear_history: MenuId,
+    id_autostart: MenuId,
     id_quit: MenuId,
 }
 
@@ -80,6 +88,15 @@ impl App {
             } else {
                 self.set_tooltip(TOOLTIP_PAUSED);
             }
+        } else if *id == self.id_notify {
+            self.shared
+                .notify
+                .store(self.check_notify.is_checked(), Ordering::Relaxed);
+            self.set_tooltip(if self.check_notify.is_checked() {
+                "ClipDedup · 系统通知已开启"
+            } else {
+                "ClipDedup · 系统通知已关闭"
+            });
         } else if *id == self.id_clear_history {
             self.shared.clear_history.store(true, Ordering::Relaxed);
             self.set_tooltip("ClipDedup · 已清除去重历史");
@@ -202,6 +219,9 @@ fn spawn_clipboard_monitor(shared: Arc<Shared>, tx: mpsc::Sender<UiMsg>) {
                         Ok(()) => {
                             seq = unsafe { GetClipboardSequenceNumber() };
                             let n = shared.intercept_count.fetch_add(1, Ordering::Relaxed) + 1;
+                            if shared.notify.load(Ordering::Relaxed) {
+                                notify::show_duplicate_intercepted(&t);
+                            }
                             tx.send(UiMsg::Intercepted(n)).ok();
                         }
                         Err(_e) => {
@@ -231,6 +251,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         enabled: AtomicBool::new(true),
         rebase: AtomicBool::new(false),
         clear_history: AtomicBool::new(false),
+        notify: AtomicBool::new(true),
         intercept_count: AtomicU64::new(0),
     });
     spawn_clipboard_monitor(shared.clone(), tx);
@@ -239,12 +260,14 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     let menu = Menu::new();
     let check_dedup = CheckMenuItem::new("启用去重", true, true, None);
+    let check_notify = CheckMenuItem::new("系统通知", true, true, None);
     let clear_history = MenuItem::new("清除去重历史", true, None);
     let check_autostart =
         CheckMenuItem::new("开机自启动", true, autostart::is_enabled(), None);
     let quit = MenuItem::new("退出", true, None);
     let sep = PredefinedMenuItem::separator();
     menu.append(&check_dedup)?;
+    menu.append(&check_notify)?;
     menu.append(&clear_history)?;
     menu.append(&check_autostart)?;
     menu.append(&sep)?;
@@ -266,10 +289,12 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         ui_rx,
         tray,
         id_dedup: check_dedup.id().clone(),
+        id_notify: check_notify.id().clone(),
         id_clear_history: clear_history.id().clone(),
         id_autostart: check_autostart.id().clone(),
         id_quit: quit.id().clone(),
         check_dedup,
+        check_notify,
         check_autostart,
     };
     event_loop.run_app(&mut app)?;

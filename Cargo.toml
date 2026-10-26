@@ -1,17 +1,25 @@
 [package]
 name = "clipdedup"
-version = "0.2.0"
+version = "0.0.1"
 edition = "2021"
-description = "Windows 剪贴板去重托盘小工具：拦截连续重复复制"
+description = "Windows 剪贴板完全去重托盘小工具：拦截重复复制并给出系统通知"
 license = "MIT"
+build = "build.rs"
 
 [dependencies]
 arboard = "3"
 image = { version = "0.25", default-features = false, features = ["png"] }
+notify-rust = "4"
 tray-icon = "0.21"
 winit = "0.30"
 winreg = "0.55"
-windows-sys = { version = "0.60", features = ["Win32_System_DataExchange"] }
+windows-sys = { version = "0.60", features = [
+    "Win32_UI_WindowsAndMessaging",
+    "Win32_System_DataExchange",
+] }
+
+[build-dependencies]
+embed-resource = "3"
 
 [profile.release]
 opt-level = "z"
