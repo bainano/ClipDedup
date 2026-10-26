@@ -1,6 +1,6 @@
 [package]
 name = "clipdedup"
-version = "0.1.0"
+version = "0.2.0"
 edition = "2021"
 description = "Windows 剪贴板去重托盘小工具：拦截连续重复复制"
 license = "MIT"
