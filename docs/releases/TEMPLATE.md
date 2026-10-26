@@ -6,7 +6,7 @@
 
 ## 系统支持范围
 
-**支持的操作系统：Windows 10 与 Windows 11。**
+**支持的操作系统（若为Windows方面）：Windows 10 与 Windows 11。**
 
 | 系统 | 架构 | 支持情况 |
 | --- | --- | --- |
@@ -15,16 +15,31 @@
 | Windows 10 / 11 | x86（32 位） | 不提供 |
 | Windows 7 / 8 | — | 不支持 |
 
+**支持的操作系统（若为macOS方面）：macOS 12（Monterey）及以上（Intel x64 与 Apple Silicon 均支持）。**
+
+| 系统 | 架构 | 支持情况 |
+| --- | --- | --- |
+| macOS 12–15 | x64（Intel） | 支持 |
+| macOS 12–15 | ARM64（Apple Silicon） | 支持 |
+| macOS 11 及更早 | — | 不支持 |
+
+> 说明：macOS 版本号对应名称为 macOS 12 Monterey、13 Ventura、14 Sonoma、15 Sequoia。
+
 ## 下载
 
 | 文件 | 适用 |
 | --- | --- |
 | `<产品名>-<版本>-win-x64.exe` | Windows 10/11 x64 免安装单文件 |
 | `<产品名>-<版本>-win-arm64.exe` | Windows 10/11 ARM64 免安装单文件 |
+| `<产品名>-<版本>-mac-x64.dmg` | macOS 12+ Intel 安装镜像 |
+| `<产品名>-<版本>-mac-arm64.dmg` | macOS 12+ Apple Silicon 安装镜像 |
 
 > 文件名使用 ASCII：GitHub Release 的上传接口会剥离资产名中的非 ASCII 字符。
 
 **Windows**：双击运行即可，程序在系统托盘中驻留，无主窗口，也不会弹出控制台窗口。右键托盘图标可打开菜单。
+
+**macOS**：打开 `.dmg` 后将应用拖入「应用程序」文件夹，首次运行若提示「无法验证开发者」，请在「系统设置 → 隐私与安全性」中点击「仍要打开」；程序在菜单栏（状态栏）驻留，无主窗口。
+
 
 ## 本版本更新
 

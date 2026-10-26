@@ -245,7 +245,44 @@ fn spawn_clipboard_monitor(shared: Arc<Shared>, tx: mpsc::Sender<UiMsg>) {
     });
 }
 
+/// 确保全局只有一个实例在运行；返回 true 表示本进程是首个实例。
+/// 避免“开机自启动 + 手动双击”同时拉起多个托盘图标。
+fn single_instance() -> bool {
+    #[cfg(windows)]
+    {
+        use windows_sys::Win32::Foundation::ERROR_ALREADY_EXISTS;
+        use windows_sys::Win32::Security::SECURITY_ATTRIBUTES;
+        use windows_sys::Win32::System::Threading::CreateMutexW;
+        let name: Vec<u16> = "ClipDedup_SingleInstance_Mutex\0".encode_utf16().collect();
+        let handle = unsafe { CreateMutexW(std::ptr::null::<SECURITY_ATTRIBUTES>(), 0, name.as_ptr()) };
+        if handle.is_null() {
+            return true; // 无法判断时放行
+        }
+        let already =
+            unsafe { windows_sys::Win32::Foundation::GetLastError() } == ERROR_ALREADY_EXISTS;
+        if already {
+            return false;
+        }
+        // HANDLE 为 raw pointer（Copy），Rust 不会自动 CloseHandle，
+        // 因此该命名互斥量会随进程一直存活，直至进程退出。
+        true
+    }
+    #[cfg(not(windows))]
+    {
+        true
+    }
+}
+
 fn main() -> Result<(), Box<dyn std::error::Error>> {
+    // 单实例：已有实例在运行时直接退出
+    if !single_instance() {
+        return Ok(());
+    }
+    // 注册通知身份（AUMID），必须在托盘/事件循环建立前完成
+    notify::register_aumid();
+    // 自愈开机自启动路径（避免移动 exe 后旧路径失效）
+    autostart::self_heal();
+
     let (tx, ui_rx) = mpsc::channel();
     let shared = Arc::new(Shared {
         enabled: AtomicBool::new(true),

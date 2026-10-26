@@ -33,3 +33,11 @@ pub fn set_enabled(on: bool) -> io::Result<()> {
     }
     Ok(())
 }
+
+/// 启动时自愈：若已开启自启动，但 Run 值指向的旧路径已失效（例如移动/重命名过 exe），
+/// 则把注册表/快捷方式重写到当前 exe 路径，避免开机项形同虚设。
+pub fn self_heal() {
+    if is_enabled() {
+        let _ = set_enabled(true);
+    }
+}
